@@ -1,30 +1,52 @@
-function download_csv(csv, filename) {
-  var csvFile;
-  var downloadLink;
-  csvFile = new Blob([csv], {
-    type: "text/csv"
-  });
-  downloadLink = document.createElement("a");
-  downloadLink.download = filename;
-  downloadLink.href = window.URL.createObjectURL(csvFile);
-  downloadLink.style.display = "none";
-  document.body.appendChild(downloadLink);
-  downloadLink.click();
-}
+const axios = require('axios');
+const cheerio = require('cheerio');
+const fs = require('fs');
 
-domains = document.querySelector('.pricing-table tbody').rows
-var csv = [];
-for (var i = 1; i < domains.length; i++) {
-  var row = [];
-  row.push(domains[i].cells[0].textContent.trim().split('\n')[0])
-  for (var j = 1; j < 5; j++) {
-    row_data = domains[i].cells[j].textContent.trim().split('\n')[0].split('Rs')[1];
-    if (typeof row_data !== 'undefined')
-      row_data = row_data.replace(/,/g, '');
-    row.push(row_data);
-  }
-  csv.push(row.join(","));
-}
+const url = "https://www.namecheap.com/domains/";
+const currencyList = ['USD','EUR','GBP','CAD','AUD','INR','CNY'];
+const symbols={'USD':'$','EUR':'€','GBP':'£','CAD':'C$','AUD':'A$','INR':'Rs','CNY':'¥'}
+var PriceList = {}
 
-// Download CSV
-download_csv(csv.join("\n"), 'prices.csv');
+currencyList.forEach(currency=>{
+    console.log("Initiated request for "+currency)
+    
+    axios.get(url, {headers: {Cookie: ".c="+currency}})
+        .then(response=>{
+            var TLDList = [];
+            const $ = cheerio.load(response.data);
+            $('.register').children()
+                .each((i,domain)=>{
+                    if(!i){
+                        return;
+                    }
+                    var dict = {};
+                    dict['TLD']=$(domain).find('.domain a').text();
+                    $(domain).find('td p').remove();
+                    var prices = $(domain).find('td').text().trim().replace(/\s/g, "");
+                    if(currency == 'EUR')
+                        prices = prices.replace(/,/g, ".")
+                    else
+                        prices = prices.replace(/,/g, "")
+                    var price_arr = prices.split(symbols[currency])
+                    price_arr.shift()
+                    dict['price']=price_arr
+                    TLDList.push(dict);
+                });
+            
+            PriceList[currency] = TLDList;
+        })
+        .then(()=>{
+            console.log(currency+" completed")
+            if(Object.keys(PriceList).length == 7)
+                fs.writeFile("data.json", JSON.stringify(PriceList), function(err) {
+                    if (err) {
+                        console.log(err);
+                    }
+                });
+        })
+        .catch(err=>{
+            console.log(err);
+        });
+        
+
+});
